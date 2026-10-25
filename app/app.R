@@ -238,7 +238,7 @@ server <- function(input, output, session) {
       p <- p + coord_flip() + scale_x_discrete(labels = wrap_label) + labs(x = NULL)
       subtitle <- sprintf("%s valores numéricos válidos; %s sin dato", sum(valid), sum(!valid))
     }
-    p <- p + plot_theme() + labs(title = paste(strwrap(title, 75), collapse = "\n"), subtitle = subtitle, caption = "Datos simulados para docencia · DSPU0011")
+    p <- p + plot_theme() + labs(title = paste(strwrap(title, 36), collapse = "\n"), subtitle = paste(strwrap(subtitle, 48), collapse = "\n"), caption = "Datos simulados")
     if (!identical(input$tab, "relations") && identical(input$distribution_chart, "pie") &&
         column_for(c, input$variable)$type != "numeric") p <- p + theme(axis.text = element_blank(), axis.ticks = element_blank(), panel.grid = element_blank())
     list(title = title, kind = kind, plot = p)
