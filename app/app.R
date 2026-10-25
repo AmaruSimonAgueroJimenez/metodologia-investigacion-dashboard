@@ -237,7 +237,7 @@ server <- function(input, output, session) {
           p <- ggplot(out, aes(x = 2, y = n, fill = Categoría)) + geom_col(width = 1, color = "white") +
             geom_label(aes(label = Etiqueta, group = Categoría), position = position_stack(vjust = .5), size = 2.9, fill = "white", color = "#19363b", alpha = .94, linewidth = .15, show.legend = FALSE) +
             coord_polar(theta = "y") + xlim(if (mode == "donut") .5 else 1.5, 2.5) +
-            scale_fill_manual(values = rep(colors, length.out = nrow(out)), labels = wrap_label) + labs(x = NULL, y = NULL)
+            scale_fill_manual(values = rep(colors, length.out = nrow(out)), labels = wrap_label, guide = guide_legend(ncol = 2, byrow = TRUE)) + labs(x = NULL, y = NULL)
           hide_axes <- TRUE
         } else if (mode == "lollipop") {
           p <- ggplot(out, aes(Categoría, n)) + geom_segment(aes(xend = Categoría, y = 0, yend = n), color = primary, linewidth = 1.1) +
@@ -261,7 +261,7 @@ server <- function(input, output, session) {
       if (!is.null(input$color) && input$color %in% names(pairs)) {
         pairs$grupo <- pairs[[input$color]]; pairs$grupo[is.na(pairs$grupo)] <- "Sin dato"
         p <- ggplot(pairs, aes(x, y, color = grupo)) + geom_point(alpha = .65, size = 2.3) +
-          scale_color_manual(values = rep(colors, length.out = length(unique(pairs$grupo))), labels = wrap_label)
+          scale_color_manual(values = rep(colors, length.out = length(unique(pairs$grupo))), labels = wrap_label, guide = guide_legend(ncol = 2, byrow = TRUE))
       } else p <- p + geom_point(color = primary, alpha = .65, size = 2.3)
       if (isTRUE(input$trend) && nrow(pairs) >= 3L && sd(pairs$x) > 0) p <- p + geom_smooth(aes(x, y), inherit.aes = FALSE, method = "lm", formula = y ~ x, se = FALSE, color = colors[2], linewidth = .9)
       p <- p + labs(x = x$label, y = y$label) + scale_y_continuous(expand = expansion(mult = c(.04, .35)))
@@ -292,7 +292,7 @@ server <- function(input, output, session) {
             scale_y_continuous(labels = function(x) paste0(figure_number(x, 0), " %"), limits = c(0, 100)) + labs(y = "Porcentaje de la fila")
         } else p <- ggplot(out, aes(Fila, n, fill = Columna)) + geom_col(width = .72) +
           geom_label(aes(label = Etiqueta, group = Columna), position = position_stack(vjust = .5), size = 2.6, fill = "white", color = "#19363b", linewidth = .1, show.legend = FALSE) + labs(y = "Frecuencia (n)")
-        p <- p + scale_fill_manual(values = rep(colors, length.out = length(unique(out$Columna))), labels = wrap_label) + scale_x_discrete(labels = wrap_label) + labs(x = x$label)
+        p <- p + scale_fill_manual(values = rep(colors, length.out = length(unique(out$Columna))), labels = wrap_label, guide = guide_legend(ncol = 2, byrow = TRUE)) + scale_x_discrete(labels = wrap_label) + labs(x = x$label)
       }
     } else {
       measure <- column_for(c, input$measure, "numeric"); group <- column_for(c, input$group, "categorical")

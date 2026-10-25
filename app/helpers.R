@@ -170,4 +170,8 @@ plot_theme <- function() theme_minimal(base_size = 12) +
     plot.subtitle = element_text(color = "#53656a", size = 10),
     plot.caption = element_text(color = "#53656a", hjust = 0),
     panel.grid.minor = element_blank(), legend.position = "bottom",
+    legend.text = element_text(size = 9, lineheight = .95),
+    legend.key.width = grid::unit(.8, "lines"), legend.key.height = grid::unit(.9, "lines"),
+    legend.spacing.x = grid::unit(.3, "lines"), legend.margin = margin(4, 0, 0, 0),
+    legend.box.margin = margin(0, 0, 0, 0),
     legend.title = element_blank(), plot.margin = margin(14, 18, 12, 12))
