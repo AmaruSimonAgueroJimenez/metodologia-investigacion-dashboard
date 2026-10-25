@@ -149,7 +149,22 @@ lighten_color <- function(color, amount = .8) {
   mixed <- rgb * (1 - amount) + amount
   grDevices::rgb(mixed[1], mixed[2], mixed[3])
 }
-wrap_label <- function(x) vapply(x, function(value) paste(strwrap(value, width = 32), collapse = "\n"), character(1))
+wrap_label <- function(x) vapply(x, function(value) paste(strwrap(value, width = 20), collapse = "\n"), character(1))
+figure_number <- function(x, digits = 2) {
+  vapply(x, function(value) if (is.na(value) || !is.finite(value)) "NA" else
+    formatC(value, format = "f", digits = digits, decimal.mark = ",", big.mark = "."), character(1))
+}
+contrast_color <- function(color) {
+  vapply(color, function(value) {
+    rgb <- as.numeric(grDevices::col2rgb(value))
+    if (sum(rgb * c(.299, .587, .114)) < 150) "white" else "#173c3d"
+  }, character(1), USE.NAMES = FALSE)
+}
+inside_summary <- function(plot, text, side = "right") {
+  plot + annotate("label", x = if (side == "left") -Inf else Inf, y = Inf,
+    label = text, hjust = if (side == "left") -.02 else 1.02, vjust = 1.04,
+    size = 3, color = "#19363b", fill = "white", alpha = .95, linewidth = .2)
+}
 plot_theme <- function() theme_minimal(base_size = 12) +
   theme(plot.title = element_text(face = "bold", size = 15),
     plot.subtitle = element_text(color = "#53656a", size = 10),

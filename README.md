@@ -10,8 +10,9 @@ GitHub Pages ejecuta la aplicación R en el navegador mediante [Shinylive](https
 
 - Seleccionar un caso y filtrar sus registros.
 - Generar tablas de frecuencia, descriptivos y tablas cruzadas.
-- Comparar grupos y medidas mediante distintos tipos de gráficos.
-- Elegir entre cinco paletas, ocho colores principales y un color HEX personalizado. Las descargas conservan esos colores.
+- Explorar 20 variantes gráficas: histogramas, densidad, cajas, violines, acumuladas, barras, circulares, anillos, puntos, dispersión y mapas de calor, con opciones según el tipo de variable.
+- Leer dentro de las figuras los n y porcentajes, medias, medianas o correlación que correspondan. Los porcentajes indican su denominador; los ejes categóricos verticales usan etiquetas inclinadas y ajustadas para facilitar su lectura.
+- Elegir el color con un selector visual, cinco paletas, ocho colores principales o un código HEX. Las descargas conservan los colores y las etiquetas numéricas.
 - Descargar las figuras en **SVG y PDF**, las tablas y la base filtrada en **CSV**.
 - Consultar el diccionario de variables y las limitaciones del caso.
 

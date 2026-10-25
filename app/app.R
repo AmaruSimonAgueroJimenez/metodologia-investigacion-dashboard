@@ -1,8 +1,8 @@
-library(shiny)
-library(ggplot2)
-library(DT)
-library(jsonlite)
-library(svglite)
+suppressPackageStartupMessages(library(shiny))
+suppressPackageStartupMessages(library(ggplot2))
+suppressPackageStartupMessages(library(DT))
+suppressPackageStartupMessages(library(jsonlite))
+suppressPackageStartupMessages(library(svglite))
 source("helpers.R", local = TRUE)
 
 cases <- fromJSON("data/cases.json", simplifyVector = FALSE)$cases
@@ -20,6 +20,7 @@ download_btn <- function(...) {
 
 ui <- fluidPage(
   tags$head(tags$title("Laboratorio de metodología | Shiny R"),
+    tags$script(HTML("$(document).on('shiny:connected', function(){Shiny.addCustomMessageHandler('sync-color-picker',function(value){var picker=document.getElementById('visual_color');if(picker) picker.value=value;});});")),
     tags$style(HTML("body{background:#f4f7f7;color:#19363b;font-family:system-ui,sans-serif}.container-fluid{max-width:1560px;padding:20px 26px}.brand{display:flex;justify-content:space-between;align-items:center;margin:0 0 22px}.brand h1{font-size:23px;font-weight:700;margin:0}.brand p{font-size:12px;color:#607478;margin:6px 0 0}.simulated{font-size:12px;padding:7px 11px;background:#e1f0eb;color:#176960;border-radius:20px}.well{background:#fff;border:1px solid #dbe4e3;border-radius:12px;box-shadow:none;padding:18px}.well h3{font-size:15px;margin-top:6px}.form-control,.selectize-input{border-radius:7px}.btn{border-radius:7px;font-size:12px}.btn-primary{background:#087f7a;border-color:#087f7a}.btn-primary:hover{background:#086a66;border-color:#086a66}.panel-block{background:#fff;border:1px solid #dbe4e3;border-radius:12px;padding:18px 20px;margin-top:18px}.case-title{font-size:24px;font-weight:650;line-height:1.2;margin:0 0 9px}.muted,.help-block{color:#607478;font-size:12px;line-height:1.6}.cohort{font-size:14px;margin-bottom:17px}.alert-note{background:#fff2e5;border-left:3px solid #d98039;padding:12px 15px;border-radius:4px;font-size:12px;line-height:1.6;margin:14px 0}.toolbar-downloads{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}.nav-tabs{margin-top:18px}.nav-tabs>li>a{color:#42676a}.nav-tabs>li.active>a{color:#087f7a;font-weight:600}.tab-content{background:white;padding:18px 16px 6px;border:1px solid #dbe4e3;border-top:0;border-radius:0 0 10px 10px}.tab-content .row{margin-bottom:0}h3{font-size:17px;font-weight:600}details{margin-top:22px;font-size:12px;line-height:1.7;color:#607478}summary{cursor:pointer;color:#365e61;font-weight:600}table.dataTable tbody td{vertical-align:top}.dataTables_wrapper{overflow-x:auto}#figure{width:100%}.shiny-output-error-validation{color:#607478;padding:20px;font-size:14px}@media(max-width:767px){.container-fluid{padding:15px}.brand{align-items:flex-start;gap:12px;flex-direction:column}.case-title{font-size:21px}.panel-block{padding:14px 12px}.simulated{font-size:11px}}"))),
   div(class = "brand", div(h1("Laboratorio de metodología"), p("DSPU0011 · 20 casos de investigación · Shiny R")),
       span(class = "simulated", "Datos simulados para docencia")),
@@ -34,6 +35,8 @@ ui <- fluidPage(
       h3("Colores de la figura"),
       selectInput("palette", "Paleta", choices = c("Verde y naranja" = "teal", "Azul y rojo" = "blue-red", "Viridis" = "viridis", "Pastel" = "pastel", "Escala de grises" = "gray")),
       selectInput("primary_color", "Color principal", choices = c("De la paleta" = "palette", "Verde petróleo" = "#087f7a", "Azul" = "#2563eb", "Naranja" = "#d98039", "Rojo" = "#dc4848", "Violeta" = "#7c3aed", "Verde" = "#15803d", "Gris" = "#6b7280", "Negro" = "#222222")),
+      tags$div(class = "form-group", tags$label(`for` = "visual_color", "Elegir color con un clic"),
+        tags$input(type = "color", id = "visual_color", value = "#087f7a", style = "width:100%;height:40px;padding:3px;border:1px solid #cbd6d4;border-radius:7px;cursor:pointer", onchange = "Shiny.setInputValue('picked_color', this.value, {priority:'event'});")),
       textInput("primary_hex", "Color HEX personalizado (opcional)", value = "", placeholder = "#087f7a"),
       p(class = "help-block", textOutput("hex_status")), uiOutput("palette_preview"),
       p(class = "help-block", "El color principal sustituye el primer color de la paleta. Se aplica a la figura y a sus descargas."), hr(),
@@ -52,7 +55,7 @@ ui <- fluidPage(
           selectInput("data_table", "Tabla", choices = c("Base filtrada" = "base", "Diccionario de variables" = "dictionary")),
           p(class = "muted", "Las categorías se muestran con sus etiquetas. El diccionario conserva los códigos del archivo docente."))),
       conditionalPanel("input.tab !== 'data'", div(class = "panel-block",
-        plotOutput("figure", height = "430px"),
+        plotOutput("figure", height = "500px"),
         div(class = "toolbar-downloads", download_btn("download_svg", "Figura SVG"), download_btn("download_pdf", "Figura PDF")),
         p(class = "muted", "La figura descargada corresponde a la selección actual. SVG y PDF conservan elementos vectoriales."))),
       div(class = "panel-block", h3(textOutput("table_title")), DTOutput("table"),
@@ -62,6 +65,14 @@ ui <- fluidPage(
 )
 
 server <- function(input, output, session) {
+  picked_value <- reactiveVal(NULL)
+  observeEvent(input$picked_color, {
+    if (grepl("^#[0-9a-fA-F]{6}$", input$picked_color)) {
+      picked_value(input$picked_color)
+      updateTextInput(session, "primary_hex", value = input$picked_color)
+    }
+  }, ignoreInit = TRUE)
+  observeEvent(input$primary_hex, picked_value(NULL), ignoreInit = TRUE)
   current_case <- reactive(cases[[if (!is.null(input$caso) && input$caso %in% case_ids) input$caso else case_ids[[1]]]])
   base_data <- reactive(case_data_frame(current_case()))
   numeric_columns <- reactive(Filter(function(c) identical(c$type, "numeric"), current_case()$columns))
@@ -73,6 +84,7 @@ server <- function(input, output, session) {
     if (!is.null(selected) && grepl("^#[0-9a-fA-F]{6}$", selected)) colors[1] <- selected
     hex <- trimws(if (is.null(input$primary_hex)) "" else input$primary_hex)
     if (grepl("^#[0-9a-fA-F]{6}$", hex)) colors[1] <- hex
+    if (!is.null(picked_value())) colors[1] <- picked_value()
     colors
   })
   output$hex_status <- renderText({
@@ -83,6 +95,7 @@ server <- function(input, output, session) {
   })
   output$palette_preview <- renderUI(div(style = "display:flex;gap:5px;margin-bottom:8px", lapply(palette_values(), function(color)
     span(title = color, style = paste0("display:inline-block;width:19px;height:19px;border-radius:4px;border:1px solid #ccd5d3;background:", color)))))
+  observe(session$sendCustomMessage("sync-color-picker", palette_values()[1]))
   observeEvent(input$caso, {
     c <- current_case()
     choices <- c("Sin filtro" = "none", column_choices(categorical_columns()))
@@ -127,20 +140,23 @@ server <- function(input, output, session) {
   })
   output$distribution_controls <- renderUI({
     column <- column_for(current_case(), input$variable)
-    if (column$type == "numeric") sliderInput("bins", "Intervalos del histograma", min = 5, max = 30, value = 10, step = 5)
-    else selectInput("distribution_chart", "Gráfico", choices = c("Barras horizontales" = "bar", "Circular" = "pie"))
+    if (column$type == "numeric") tagList(
+      selectInput("numeric_chart", "Gráfico", choices = c("Histograma" = "hist", "Densidad" = "density", "Caja y bigotes" = "box", "Violín" = "violin", "Acumulada (ECDF)" = "ecdf")),
+      conditionalPanel("input.numeric_chart === 'hist'", sliderInput("bins", "Intervalos del histograma", min = 5, max = 30, value = 10, step = 5)))
+    else selectInput("distribution_chart", "Gráfico", choices = c("Barras horizontales" = "bar", "Barras verticales" = "vertical", "Circular" = "pie", "Anillo" = "donut", "Puntos y líneas" = "lollipop"))
   })
   output$relation_controls <- renderUI({
     nums <- column_choices(numeric_columns()); cats <- column_choices(categorical_columns())
     mode <- input$relation_type
     if (is.null(mode) || mode == "group") fluidRow(
       column(4, selectInput("measure", "Medida", nums)), column(4, selectInput("group", "Agrupar por", cats)),
-      column(4, selectInput("group_chart", "Gráfico", c("Caja y bigotes" = "box", "Medias por grupo" = "mean"))))
+      column(4, selectInput("group_chart", "Gráfico", c("Caja y bigotes" = "box", "Medias por grupo" = "mean", "Violín" = "violin", "Medianas por grupo" = "median", "Observaciones y resumen" = "points"))))
     else if (mode == "scatter") fluidRow(
       column(4, selectInput("x", "Eje X", nums)), column(4, selectInput("y", "Eje Y", nums[-1])),
-      column(4, selectInput("color", "Color por", c("Sin agrupación" = "none", cats))))
+      column(4, selectInput("color", "Color por", c("Sin agrupación" = "none", cats))),
+      column(12, checkboxInput("trend", "Añadir tendencia lineal", value = FALSE)))
     else fluidRow(column(4, selectInput("cross_x", "Filas", cats)), column(4, selectInput("cross_y", "Columnas", cats[-1])),
-      column(4, selectInput("cross_chart", "Gráfico", c("Barras apiladas" = "stacked", "Mapa de calor" = "heatmap"))))
+      column(4, selectInput("cross_chart", "Gráfico", c("Barras apiladas" = "stacked", "Barras agrupadas" = "grouped", "Barras al 100 %" = "percent", "Mapa de calor" = "heatmap"))))
   })
   observeEvent(input$x, updateSelectInput(session, "y", choices = column_choices(Filter(function(c) c$key != input$x, numeric_columns()))))
   observeEvent(input$cross_x, updateSelectInput(session, "cross_y", choices = column_choices(Filter(function(c) c$key != input$cross_x, categorical_columns()))))
@@ -172,75 +188,148 @@ server <- function(input, output, session) {
   })
 
   plot_model <- reactive({
-    c <- current_case(); data <- filtered_data()
-    plot_palette <- palette_values()
+    c <- current_case(); data <- filtered_data(); colors <- palette_values()
+    primary <- colors[1]; rotate_x <- FALSE; hide_axes <- FALSE
     shiny::validate(need(nrow(data) > 0, "No hay registros para esta combinación. Amplía la cohorte con los filtros."))
     title <- ""; kind <- "figura"; subtitle <- sprintf("Cohorte filtrada: %s registros", nrow(data))
     if (!identical(input$tab, "relations")) {
       column <- column_for(c, input$variable); title <- column$label
       if (column$type == "numeric") {
-        kind <- paste0("histograma-", column$key)
-        x <- data[[column$key]]; valid <- is.finite(x)
-        shiny::validate(need(any(valid), "La variable no contiene valores numéricos válidos en esta cohorte."))
-        subtitle <- sprintf("n válido = %s; sin dato = %s", sum(valid), sum(!valid))
-        p <- ggplot(data.frame(valor = x[valid]), aes(valor)) + geom_histogram(bins = if (is.null(input$bins)) 10 else input$bins, fill = plot_palette[1], color = "white", closed = "left") + labs(x = column$label, y = "Frecuencia (n)")
+        values <- data[[column$key]]; valid <- is.finite(values); values <- values[valid]
+        shiny::validate(need(length(values) > 0, "La variable no contiene valores numéricos válidos en esta cohorte."))
+        mode <- if (is.null(input$numeric_chart)) "hist" else input$numeric_chart
+        kind <- paste0(mode, "-", column$key)
+        stats <- describe_numeric(data[[column$key]])
+        summary <- sprintf("n = %s | sin dato = %s\nMedia = %s\nMediana = %s", length(values), sum(!valid), figure_number(stats$Media), figure_number(stats$Mediana))
+        out <- data.frame(valor = values)
+        if (mode == "density") {
+          shiny::validate(need(length(unique(values)) >= 2L, "La densidad requiere al menos dos valores diferentes."))
+          p <- ggplot(out, aes(valor)) + geom_density(fill = lighten_color(primary, .65), color = primary, linewidth = 1) + labs(x = column$label, y = "Densidad")
+        } else if (mode %in% c("box", "violin")) {
+          out$grupo <- "Muestra"
+          p <- ggplot(out, aes(grupo, valor))
+          if (mode == "violin") {
+            shiny::validate(need(length(unique(values)) >= 2L, "El violín requiere al menos dos valores diferentes."))
+            p <- p + geom_violin(fill = lighten_color(primary, .65), color = primary)
+          } else p <- p + geom_boxplot(fill = lighten_color(primary, .65), color = primary, outlier.color = colors[2])
+          p <- p + geom_point(data = data.frame(grupo = "Muestra", valor = stats$Media), shape = 18, size = 3.5, color = colors[2]) +
+            geom_point(data = data.frame(grupo = "Muestra", valor = stats$Mediana), shape = 95, size = 7, color = primary) + labs(x = NULL, y = column$label)
+        } else if (mode == "ecdf") {
+          p <- ggplot(out, aes(valor)) + stat_ecdf(geom = "step", color = primary, linewidth = 1) +
+            scale_y_continuous(labels = function(x) paste0(figure_number(100 * x, 0), " %")) + labs(x = column$label, y = "Porcentaje acumulado")
+        } else {
+          bins <- if (is.null(input$bins)) 10 else input$bins
+          p <- ggplot(out, aes(valor)) + geom_histogram(bins = bins, fill = primary, color = "white", closed = "left") +
+            stat_bin(aes(y = after_stat(count / 2), label = after_stat(ifelse(count > 0, count, ""))), bins = bins, closed = "left", geom = "text", color = contrast_color(primary), size = 3.1) +
+            labs(x = column$label, y = "Frecuencia (n)")
+        }
+        if (!mode %in% c("ecdf", "box", "violin")) p <- p + scale_y_continuous(expand = expansion(mult = c(.02, .3)))
+        if (mode %in% c("box", "violin")) p <- p + scale_y_continuous(expand = expansion(mult = c(.08, .35)))
+        p <- inside_summary(p, summary)
+        subtitle <- if (mode %in% c("box", "violin")) "Rombo: media; marca horizontal: mediana. Resumen dentro de la figura" else "Resumen dentro de la figura; solo observaciones numéricas válidas"
       } else {
         out <- frequency_table(data, column)
+        out$Etiqueta <- sprintf("n = %s\n%s %%", out$n, figure_number(out$`Porcentaje del total`, 1))
         out$Categoría <- factor(out$Categoría, levels = out$Categoría)
-        if (identical(input$distribution_chart, "pie")) {
-          kind <- paste0("circular-", column$key)
-          p <- ggplot(out, aes(x = "", y = n, fill = Categoría)) + geom_col(width = 1, color = "white") + coord_polar(theta = "y") +
-            scale_fill_manual(values = rep(plot_palette, length.out = nrow(out))) + labs(x = NULL, y = NULL) + theme(axis.text = element_blank(), axis.ticks = element_blank(), panel.grid = element_blank())
+        mode <- if (is.null(input$distribution_chart)) "bar" else input$distribution_chart
+        kind <- paste0(mode, "-", column$key)
+        if (mode %in% c("pie", "donut")) {
+          p <- ggplot(out, aes(x = 2, y = n, fill = Categoría)) + geom_col(width = 1, color = "white") +
+            geom_label(aes(label = Etiqueta, group = Categoría), position = position_stack(vjust = .5), size = 2.9, fill = "white", color = "#19363b", alpha = .94, linewidth = .15, show.legend = FALSE) +
+            coord_polar(theta = "y") + xlim(if (mode == "donut") .5 else 1.5, 2.5) +
+            scale_fill_manual(values = rep(colors, length.out = nrow(out)), labels = wrap_label) + labs(x = NULL, y = NULL)
+          hide_axes <- TRUE
+        } else if (mode == "lollipop") {
+          p <- ggplot(out, aes(Categoría, n)) + geom_segment(aes(xend = Categoría, y = 0, yend = n), color = primary, linewidth = 1.1) +
+            geom_point(color = primary, size = 4) + geom_label(aes(y = n / 2, label = Etiqueta), fill = "white", color = "#19363b", size = 2.9, linewidth = .15) +
+            coord_flip() + scale_x_discrete(labels = wrap_label) + labs(x = NULL, y = "Frecuencia (n)")
         } else {
-          kind <- paste0("barras-", column$key)
-          p <- ggplot(out, aes(Categoría, n)) + geom_col(fill = plot_palette[1], width = .7) + coord_flip() + scale_x_discrete(labels = wrap_label) + labs(x = NULL, y = "Frecuencia (n)")
+          p <- ggplot(out, aes(Categoría, n)) + geom_col(fill = primary, width = .7) +
+            geom_label(aes(y = n / 2, label = Etiqueta), fill = "white", color = "#19363b", alpha = .94, size = 2.9, linewidth = .15) +
+            scale_x_discrete(labels = wrap_label) + labs(x = NULL, y = "Frecuencia (n)")
+          if (mode == "vertical") rotate_x <- TRUE else p <- p + coord_flip()
         }
-        subtitle <- "Porcentajes en la tabla sobre todos los registros, incluidos los ausentes"
+        subtitle <- sprintf("n y %% sobre %s registros, incluidos los ausentes", nrow(data))
       }
     } else if (identical(input$relation_type, "scatter")) {
       x <- column_for(c, input$x, "numeric"); y <- column_for(c, input$y, "numeric", x$key)
       shiny::validate(need(!is.null(y), "Este caso tiene una sola medida numérica."))
       pairs <- complete_pairs(data, x, y); shiny::validate(need(nrow(pairs) > 0, "No hay pares completos para estas medidas."))
       r <- pearson_summary(data, x, y)$`r de Pearson`
-      title <- paste(x$label, "y", y$label)
-      kind <- paste0("dispersion-", x$key, "-", y$key)
-      subtitle <- sprintf("%s pares completos; r de Pearson = %s", nrow(pairs), if (is.na(r)) "NA (sin variación o n < 3)" else format(round(r, 3), decimal.mark = ","))
+      title <- paste(x$label, "y", y$label); kind <- paste0("dispersion-", x$key, "-", y$key)
       p <- ggplot(pairs, aes(x, y))
       if (!is.null(input$color) && input$color %in% names(pairs)) {
         pairs$grupo <- pairs[[input$color]]; pairs$grupo[is.na(pairs$grupo)] <- "Sin dato"
-        p <- ggplot(pairs, aes(x, y, color = grupo)) + geom_point(alpha = .7, size = 2.3) + scale_color_manual(values = rep(plot_palette, length.out = length(unique(pairs$grupo))))
-      } else p <- p + geom_point(color = plot_palette[1], alpha = .65, size = 2.3)
-      p <- p + labs(x = x$label, y = y$label)
+        p <- ggplot(pairs, aes(x, y, color = grupo)) + geom_point(alpha = .65, size = 2.3) +
+          scale_color_manual(values = rep(colors, length.out = length(unique(pairs$grupo))), labels = wrap_label)
+      } else p <- p + geom_point(color = primary, alpha = .65, size = 2.3)
+      if (isTRUE(input$trend) && nrow(pairs) >= 3L && sd(pairs$x) > 0) p <- p + geom_smooth(aes(x, y), inherit.aes = FALSE, method = "lm", formula = y ~ x, se = FALSE, color = colors[2], linewidth = .9)
+      p <- p + labs(x = x$label, y = y$label) + scale_y_continuous(expand = expansion(mult = c(.04, .35)))
+      summary <- sprintf("n = %s | r = %s\nX: media = %s; mediana = %s\nY: media = %s; mediana = %s", nrow(pairs), figure_number(r, 3), figure_number(mean(pairs$x)), figure_number(median(pairs$x)), figure_number(mean(pairs$y)), figure_number(median(pairs$y)))
+      p <- inside_summary(p, summary, "left")
+      subtitle <- sprintf("%s filas excluidas por dato ausente; correlación de Pearson", nrow(data) - nrow(pairs))
     } else if (identical(input$relation_type, "cross")) {
       x <- column_for(c, input$cross_x, "categorical"); y <- column_for(c, input$cross_y, "categorical", x$key)
       out <- cross_table(data, x, y); shiny::validate(need(attr(out, "n_complete") > 0, "No hay pares categóricos completos."))
+      out$Etiqueta <- sprintf("n = %s\n%s %% fila", out$n, figure_number(out$`Porcentaje de la fila`, 1))
       title <- paste(x$label, "según", y$label)
-      kind <- paste0("cruce-", x$key, "-", y$key, "-", if (identical(input$cross_chart, "heatmap")) "calor" else "barras")
-      subtitle <- sprintf("%s pares completos; %s filas excluidas por dato ausente", attr(out, "n_complete"), attr(out, "n_missing"))
-      if (identical(input$cross_chart, "heatmap")) {
-        rgb <- as.numeric(grDevices::col2rgb(plot_palette[1]))
-        dark_primary <- sum(rgb * c(.299, .587, .114)) < 150
-        text_colors <- ifelse(dark_primary & out$n > .55 * max(out$n), "white", "#173c3d")
-        p <- ggplot(out, aes(Fila, Columna, fill = n)) + geom_tile(color = "white") + geom_text(aes(label = n), color = text_colors) + scale_fill_gradient(low = lighten_color(plot_palette[1], .9), high = plot_palette[1]) + scale_x_discrete(labels = wrap_label) + scale_y_discrete(labels = wrap_label) + labs(x = x$label, y = y$label)
+      mode <- if (is.null(input$cross_chart)) "stacked" else input$cross_chart
+      kind <- paste0("cruce-", x$key, "-", y$key, "-", mode); rotate_x <- TRUE
+      subtitle <- sprintf("%s pares completos; %s filas excluidas. Etiquetas: n y %% de cada fila", attr(out, "n_complete"), attr(out, "n_missing"))
+      if (mode == "heatmap") {
+        dark <- contrast_color(primary) == "white"
+        text_colors <- ifelse(dark & out$n > .55 * max(out$n), "white", "#173c3d")
+        p <- ggplot(out, aes(Fila, Columna, fill = n)) + geom_tile(color = "white") + geom_text(aes(label = Etiqueta), color = text_colors, size = 2.8) +
+          scale_fill_gradient(low = lighten_color(primary, .9), high = primary) + scale_x_discrete(labels = wrap_label) + scale_y_discrete(labels = wrap_label) + labs(x = x$label, y = y$label, fill = "n")
+      } else {
+        out$Etiqueta[out$n == 0] <- ""
+        if (mode == "grouped") {
+          p <- ggplot(out, aes(Fila, n, fill = Columna)) + geom_col(position = position_dodge(.8), width = .72) +
+            geom_label(aes(y = n / 2, label = Etiqueta, group = Columna), position = position_dodge(.8), size = 2.5, fill = "white", color = "#19363b", linewidth = .1, show.legend = FALSE) + labs(y = "Frecuencia (n)")
+        } else if (mode == "percent") {
+          p <- ggplot(out, aes(Fila, `Porcentaje de la fila`, fill = Columna)) + geom_col(width = .72) +
+            geom_label(aes(label = Etiqueta, group = Columna), position = position_stack(vjust = .5), size = 2.6, fill = "white", color = "#19363b", linewidth = .1, show.legend = FALSE) +
+            scale_y_continuous(labels = function(x) paste0(figure_number(x, 0), " %"), limits = c(0, 100)) + labs(y = "Porcentaje de la fila")
+        } else p <- ggplot(out, aes(Fila, n, fill = Columna)) + geom_col(width = .72) +
+          geom_label(aes(label = Etiqueta, group = Columna), position = position_stack(vjust = .5), size = 2.6, fill = "white", color = "#19363b", linewidth = .1, show.legend = FALSE) + labs(y = "Frecuencia (n)")
+        p <- p + scale_fill_manual(values = rep(colors, length.out = length(unique(out$Columna))), labels = wrap_label) + scale_x_discrete(labels = wrap_label) + labs(x = x$label)
       }
-      else p <- ggplot(out, aes(Fila, n, fill = Columna)) + geom_col(width = .7) + scale_fill_manual(values = rep(plot_palette, length.out = length(unique(out$Columna)))) + scale_x_discrete(labels = wrap_label) + labs(x = x$label, y = "Frecuencia (n)")
     } else {
       measure <- column_for(c, input$measure, "numeric"); group <- column_for(c, input$group, "categorical")
       title <- paste(measure$label, "según", group$label)
-      kind <- paste0(if (identical(input$group_chart, "mean")) "medias-" else "cajas-", measure$key, "-por-", group$key)
+      mode <- if (is.null(input$group_chart)) "box" else input$group_chart
+      kind <- paste0(mode, "-", measure$key, "-por-", group$key)
       valid <- is.finite(data[[measure$key]]); shiny::validate(need(any(valid), "No hay valores numéricos válidos para comparar."))
       x <- data[[group$key]]; levels <- category_levels(x, group); x[is.na(x)] <- "Sin dato"
       out <- data.frame(grupo = factor(x[valid], levels = levels), valor = data[[measure$key]][valid])
-      if (identical(input$group_chart, "mean")) {
-        means <- group_summary(data, measure, group); means$Grupo <- factor(means$Grupo, levels = levels)
-        p <- ggplot(means, aes(Grupo, Media)) + geom_col(fill = plot_palette[1], width = .7) + labs(y = paste("Media de", measure$label))
-      } else p <- ggplot(out, aes(grupo, valor)) + geom_boxplot(fill = lighten_color(plot_palette[1], .7), color = plot_palette[1], outlier.color = plot_palette[2]) + labs(y = measure$label)
+      summary <- group_summary(data, measure, group); summary <- summary[summary$`N válido` > 0, , drop = FALSE]
+      summary$Grupo <- factor(summary$Grupo, levels = levels)
+      if (mode %in% c("mean", "median")) {
+        summary$Valor <- if (mode == "mean") summary$Media else summary$Mediana
+        summary$Etiqueta <- sprintf("%s = %s\nn = %s", if (mode == "mean") "Media" else "Mediana", figure_number(summary$Valor), summary$`N válido`)
+        p <- ggplot(summary, aes(Grupo, Valor)) + geom_col(fill = primary, width = .7) +
+          geom_label(aes(y = Valor / 2, label = Etiqueta), fill = "white", color = "#19363b", size = 2.9, linewidth = .15) + labs(y = paste(if (mode == "mean") "Media de" else "Mediana de", measure$label))
+      } else {
+        p <- ggplot(out, aes(grupo, valor))
+        if (mode == "violin") {
+          eligible <- names(Filter(function(values) length(unique(values)) >= 2L, split(out$valor, out$grupo)))
+          p <- p + geom_violin(data = out[out$grupo %in% eligible, , drop = FALSE], fill = lighten_color(primary, .65), color = primary)
+        } else if (mode == "points") p <- p + geom_jitter(width = .1, height = 0, color = primary, alpha = .45, size = 1.6)
+        else p <- p + geom_boxplot(fill = lighten_color(primary, .7), color = primary, outlier.color = colors[2])
+        summary$Etiqueta <- sprintf("n = %s\nMedia = %s\nMediana = %s", summary$`N válido`, figure_number(summary$Media), figure_number(summary$Mediana))
+        span <- diff(range(out$valor)); if (!is.finite(span) || span == 0) span <- max(1, abs(out$valor[1]) * .1)
+        summary$Posicion <- max(out$valor) + .14 * span
+        p <- p + geom_point(data = summary, aes(Grupo, Media), inherit.aes = FALSE, shape = 18, size = 3, color = colors[2]) +
+          geom_point(data = summary, aes(Grupo, Mediana), inherit.aes = FALSE, shape = 95, size = 6, color = primary) +
+          geom_label(data = summary, aes(Grupo, Posicion, label = Etiqueta), inherit.aes = FALSE, fill = "white", color = "#19363b", size = 2.8, linewidth = .15) +
+          scale_y_continuous(expand = expansion(mult = c(.07, .4))) + labs(y = measure$label)
+      }
       p <- p + coord_flip() + scale_x_discrete(labels = wrap_label) + labs(x = NULL)
-      subtitle <- sprintf("%s valores numéricos válidos; %s sin dato", sum(valid), sum(!valid))
+      subtitle <- sprintf("%s valores válidos; %s sin dato. Rombo: media; marca horizontal: mediana", sum(valid), sum(!valid))
     }
     p <- p + plot_theme() + labs(title = paste(strwrap(title, 36), collapse = "\n"), subtitle = paste(strwrap(subtitle, 48), collapse = "\n"), caption = "Datos simulados")
-    if (!identical(input$tab, "relations") && identical(input$distribution_chart, "pie") &&
-        column_for(c, input$variable)$type != "numeric") p <- p + theme(axis.text = element_blank(), axis.ticks = element_blank(), panel.grid = element_blank())
+    if (rotate_x) p <- p + theme(axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1))
+    if (hide_axes) p <- p + theme(axis.text = element_blank(), axis.ticks = element_blank(), panel.grid = element_blank())
     list(title = title, kind = kind, plot = p)
   })
   output$figure <- renderPlot({ print(plot_model()$plot) }, res = 110)

@@ -55,6 +55,41 @@ read_download_csv <- function(path) {
            fileEncoding = "UTF-8-BOM", na.strings = "")
 }
 
+plot_text_labels <- function(plot) {
+  unlist(lapply(ggplot2::ggplot_build(plot)$data, function(layer) {
+    if (is.null(layer$label)) character(0) else as.character(layer$label)
+  }), use.names = FALSE)
+}
+
+label_number <- function(text, prefix) {
+  expression <- paste0(prefix, "[[:space:]]*=[[:space:]]*(-?[[:digit:]]+(?:[.,][[:digit:]]+)?)")
+  matches <- regmatches(text, regexec(expression, text, ignore.case = TRUE, perl = TRUE))
+  vapply(matches, function(match) if (length(match) < 2L) NA_real_
+         else as.numeric(sub(",", ".", match[[2]], fixed = TRUE)), numeric(1))
+}
+
+label_percentage <- function(text) {
+  matches <- regmatches(text, regexec("([[:digit:]]+(?:[.,][[:digit:]]+)?)[[:space:]]*%", text, perl = TRUE))
+  vapply(matches, function(match) if (length(match) < 2L) NA_real_
+         else as.numeric(sub(",", ".", match[[2]], fixed = TRUE)), numeric(1))
+}
+
+labels_inside_columns <- function(plot) {
+  built <- ggplot2::ggplot_build(plot)$data
+  columns <- built[[1]]
+  text_layers <- Filter(function(layer) !is.null(layer$label), built[-1])
+  stopifnot(length(text_layers) > 0L, all(c("x", "ymin", "ymax") %in% names(columns)))
+  text <- text_layers[[1]]
+  text <- text[!is.na(text$label) & nzchar(as.character(text$label)), , drop = FALSE]
+  for (i in seq_len(nrow(text))) {
+    # Check rendered geometry rather than reproducing position_stack/dodge.
+    midpoints <- (columns$ymin + columns$ymax) / 2
+    stopifnot(any(abs(as.numeric(columns$x) - as.numeric(text$x[[i]])) < 1e-7 &
+                    abs(midpoints - text$y[[i]]) < 1e-7))
+  }
+  invisible(TRUE)
+}
+
 app_env <- new.env(parent = globalenv())
 app <- source("app/app.R", local = app_env, chdir = TRUE)$value
 stopifnot(inherits(app, "shiny.appobj"))
@@ -104,6 +139,40 @@ testServer(app, {
   stopifnot(isTRUE(all.equal(actual, wanted, tolerance = 1e-10)))
   histogram <- ggplot2::ggplot_build(plot_model()$plot)$data[[1]]
   stopifnot(sum(histogram$count) == nrow(expected))
+  palette_first_colors <- c(teal = "#087f7a", `blue-red` = "#2563eb",
+                            viridis = "#440154", pastel = "#75b6b2", gray = "#4b5563")
+  for (palette_id in names(palette_first_colors)) {
+    session$setInputs(palette = palette_id, primary_color = "palette", primary_hex = "")
+    stopifnot(identical(tolower(plot_model()$plot$layers[[1]]$aes_params$fill),
+                        unname(palette_first_colors[[palette_id]])))
+  }
+  session$setInputs(primary_color = "#dc4848", primary_hex = "#00Aa66")
+  stopifnot(identical(tolower(plot_model()$plot$layers[[1]]$aes_params$fill), "#00aa66"))
+  session$setInputs(primary_hex = "invalid")
+  stopifnot(identical(tolower(plot_model()$plot$layers[[1]]$aes_params$fill), "#dc4848"),
+            grepl("no válido", output$hex_status, fixed = TRUE))
+  session$setInputs(palette = "teal", primary_color = "palette", primary_hex = "")
+  # The visual picker is a real server input, and its selected color must reach
+  # the same plot used by the screen and vector downloads.
+  session$setInputs(picked_color = "#a13cb9")
+  stopifnot(identical(tolower(plot_model()$plot$layers[[1]]$aes_params$fill), "#a13cb9"))
+  session$setInputs(picked_color = "#087f7a")
+
+  numeric_geoms <- c(hist = "GeomBar", density = "GeomDensity", box = "GeomBoxplot",
+                     violin = "GeomViolin", ecdf = "GeomStep")
+  for (chart in names(numeric_geoms)) {
+    session$setInputs(numeric_chart = chart)
+    plot <- plot_model()$plot
+    stopifnot(inherits(plot$layers[[1]]$geom, numeric_geoms[[chart]]))
+    labels <- plot_text_labels(plot)
+    summary_labels <- labels[grepl("media", labels, ignore.case = TRUE)]
+    stopifnot(length(summary_labels) > 0L,
+              any(label_number(summary_labels, "\\bn") == nrow(expected), na.rm = TRUE),
+              any(abs(label_number(summary_labels, "media") - mean(ages)) < .011, na.rm = TRUE),
+              any(abs(label_number(summary_labels, "mediana") - median(ages)) < .011, na.rm = TRUE),
+              !any(grepl("%", labels, fixed = TRUE)))
+  }
+  session$setInputs(numeric_chart = "hist")
   same_rows(read_download_csv(output$download_base), expected)
   same_rows(read_download_csv(output$download_table), numeric_table)
 
@@ -123,6 +192,21 @@ testServer(app, {
   stopifnot(sum(ggplot2::ggplot_build(plot_model()$plot)$data[[1]]$y) == nrow(expected))
   session$setInputs(distribution_chart = "pie")
   stopifnot(inherits(plot_model()$plot$coordinates, "CoordPolar"))
+  for (chart in c("bar", "vertical", "pie", "donut", "lollipop")) {
+    session$setInputs(distribution_chart = chart)
+    plot <- plot_model()$plot
+    labelled <- plot$data
+    stopifnot(is.data.frame(labelled), "Etiqueta" %in% names(labelled),
+              identical(as.numeric(label_number(labelled$Etiqueta, "\\bn")), as.numeric(labelled$n)),
+              all(abs(label_percentage(labelled$Etiqueta) - 100 * labelled$n / nrow(expected)) <= .051),
+              sum(labelled$n) == nrow(expected))
+    if (chart %in% c("pie", "donut")) stopifnot(inherits(plot$coordinates, "CoordPolar"))
+    if (chart == "lollipop") stopifnot(inherits(plot$layers[[1]]$geom, "GeomSegment"))
+    else labels_inside_columns(plot)
+    if (chart == "vertical") stopifnot(plot$theme$axis.text.x$angle == 45)
+    drawn_labels <- plot_text_labels(plot)
+    stopifnot(all(labelled$Etiqueta %in% drawn_labels))
+  }
 
   # Both figure download handlers execute against the very same current ggplot
   # reactive. Validate actual files, vector headers, title, and stable plot data.
@@ -157,6 +241,18 @@ testServer(app, {
   stopifnot(inherits(plot_model()$plot$layers[[1]]$geom, "GeomBoxplot"))
   session$setInputs(group_chart = "mean")
   stopifnot(inherits(plot_model()$plot$layers[[1]]$geom, "GeomCol"))
+  group_geoms <- c(box = "GeomBoxplot", mean = "GeomCol", violin = "GeomViolin",
+                   median = "GeomCol", points = "GeomPoint")
+  for (chart in names(group_geoms)) {
+    session$setInputs(group_chart = chart)
+    plot <- plot_model()$plot
+    stopifnot(inherits(plot$layers[[1]]$geom, group_geoms[[chart]]))
+    labels <- plot_text_labels(plot)
+    labelled_n <- label_number(labels, "\\bn")
+    labelled_n <- labelled_n[!is.na(labelled_n)]
+    stopifnot(identical(sort(labelled_n), sort(as.numeric(grouped$`N válido`))),
+              !any(grepl("%", labels, fixed = TRUE)))
+  }
 
   # Pearson and scatter preserve pair counts and row filters. Two categorical
   # summaries below independently validate each count and row percentage.
@@ -171,6 +267,13 @@ testServer(app, {
             correlation$`Filas excluidas` == 0,
             isTRUE(all.equal(correlation$`r de Pearson`, cor(expected$dias_espera, expected$distancia_km))),
             nrow(ggplot2::ggplot_build(plot_model()$plot)$data[[1]]) == nrow(expected))
+  session$setInputs(trend = TRUE)
+  scatter <- plot_model()$plot
+  scatter_labels <- plot_text_labels(scatter)
+  stopifnot(any(label_number(scatter_labels, "\\bn") == nrow(expected), na.rm = TRUE),
+            any(abs(label_number(scatter_labels, "\\br") - cor(expected$dias_espera, expected$distancia_km)) < .0011, na.rm = TRUE),
+            !any(grepl("%", scatter_labels, fixed = TRUE)),
+            any(vapply(scatter$layers, function(layer) inherits(layer$geom, "GeomSmooth"), logical(1))))
   same_rows(read_download_csv(output$download_base), expected)
 
   session$setInputs(relation_type = "cross", cross_x = "sexo_biologico", cross_y = "gravedad_sintoma", cross_chart = "stacked")
@@ -185,6 +288,23 @@ testServer(app, {
   same_rows(read_download_csv(output$download_table), crossed)
   session$setInputs(cross_chart = "heatmap")
   stopifnot(inherits(plot_model()$plot$layers[[1]]$geom, "GeomTile"))
+  for (chart in c("stacked", "grouped", "percent", "heatmap")) {
+    session$setInputs(cross_chart = chart)
+    plot <- plot_model()$plot
+    labelled <- plot$data
+    visible <- labelled$n > 0 | chart == "heatmap"
+    stopifnot("Etiqueta" %in% names(labelled),
+              identical(as.numeric(label_number(labelled$Etiqueta[visible], "\\bn")), as.numeric(labelled$n[visible])),
+              all(abs(label_percentage(labelled$Etiqueta[visible]) - labelled$`Porcentaje de la fila`[visible]) <= .051),
+              all(labelled$Etiqueta[!visible] == ""),
+              sum(labelled$n) == nrow(expected), plot$theme$axis.text.x$angle == 45,
+              all(labelled$Etiqueta %in% plot_text_labels(plot)))
+    if (chart == "percent") {
+      columns <- ggplot2::ggplot_build(plot)$data[[1]]
+      stopifnot(all(columns$ymax <= 100 + 1e-9))
+    }
+    if (chart != "heatmap") labels_inside_columns(plot)
+  }
 
   # The raw-data tab and dictionary do not mutate the server's cohort or measures.
   session$setInputs(tab = "data", data_table = "base")
@@ -205,6 +325,82 @@ testServer(app, {
   stopifnot(inherits(plot_error, "shiny.silent.error"))
 })
 
+# Boundary fixtures live only in the R test environment; the reviewed JSON and
+# original case files remain untouched. A small cohort must not manufacture a
+# density or regression, and a missing value must not become a zero observation.
+local({
+  saved_case <- app_env$cases[["caso-01"]]
+  on.exit({ app_env$cases[["caso-01"]] <- saved_case }, add = TRUE)
+  for (cohort_n in c(1L, 3L)) {
+    fixture <- saved_case
+    fixture$rows <- rep(list(saved_case$rows[[1]]), cohort_n)
+    fixture$n <- cohort_n
+    app_env$cases[["caso-01"]] <- fixture
+    testServer(app, {
+      session$setInputs(caso = "caso-01", filter1 = "none", filter2 = "none",
+                       value1 = "__all__", value2 = "__all__", tab = "distribution",
+                       variable = "edad_anos", numeric_chart = "density")
+      stopifnot(nrow(filtered_data()) == cohort_n)
+      for (mode in c("density", "violin")) {
+        session$setInputs(numeric_chart = mode)
+        result <- tryCatch(plot_model(), error = identity)
+        stopifnot(inherits(result, "shiny.silent.error"), nzchar(conditionMessage(result)))
+        download <- tryCatch(output$download_svg, error = identity)
+        stopifnot(inherits(download, "shiny.silent.error"))
+      }
+      session$setInputs(tab = "relations", relation_type = "scatter",
+                       x = "edad_anos", y = "distancia_al_cesfam_km", color = "none", trend = TRUE)
+      plot <- plot_model()$plot
+      stopifnot(!any(vapply(plot$layers, function(layer) inherits(layer$geom, "GeomSmooth"), logical(1))),
+                any(grepl("r = NA", plot_text_labels(plot), fixed = TRUE)),
+                nrow(ggplot2::ggplot_build(plot)$data[[1]]) == cohort_n)
+      session$setInputs(relation_type = "group", measure = "edad_anos", group = "sexo", group_chart = "violin")
+      plot <- plot_model()$plot
+      built <- ggplot2::ggplot_build(plot)
+      stopifnot(nrow(built$data[[1]]) == 0L,
+                any(vapply(plot$layers[-1], function(layer) inherits(layer$geom, "GeomPoint"), logical(1))))
+      svg <- paste(readLines(output$download_svg, encoding = "UTF-8", warn = FALSE), collapse = "\n")
+      stopifnot(grepl("<svg", svg, fixed = TRUE), !grepl("NaN|Infinity", svg),
+                any(label_number(plot_text_labels(plot), "\\bn") == cohort_n, na.rm = TRUE))
+    })
+  }
+
+  fixture <- saved_case
+  fixture$rows <- rep(list(saved_case$rows[[1]]), 4L)
+  for (i in seq_len(4L)) {
+    fixture$rows[[i]]$sexo <- c("HOMBRE", "HOMBRE", "MUJER", NA_character_)[[i]]
+    fixture$rows[[i]]$enferedad_cronica <- c("SI", "NO", NA_character_, "SI")[[i]]
+    fixture$rows[[i]]$edad_anos <- c(2, 4, 8, NA_real_)[[i]]
+  }
+  fixture$n <- 4L
+  app_env$cases[["caso-01"]] <- fixture
+  testServer(app, {
+    session$setInputs(caso = "caso-01", filter1 = "none", filter2 = "none",
+                     value1 = "__all__", value2 = "__all__", tab = "distribution",
+                     variable = "sexo", distribution_chart = "vertical")
+    plotted <- plot_model()$plot$data
+    stopifnot(identical(as.integer(label_number(plotted$Etiqueta, "\\bn")), c(2L, 1L, 1L)),
+              identical(label_percentage(plotted$Etiqueta), c(50, 25, 25)))
+    session$setInputs(variable = "edad_anos", numeric_chart = "hist")
+    texts <- plot_text_labels(plot_model()$plot)
+    summary_text <- texts[grepl("media", texts, ignore.case = TRUE)]
+    stopifnot(any(label_number(summary_text, "\\bn") == 3L, na.rm = TRUE),
+              !any(label_number(summary_text, "\\bn") == 4L, na.rm = TRUE),
+              sum(ggplot2::ggplot_build(plot_model()$plot)$data[[1]]$count) == 3L,
+              !any(grepl("%", texts, fixed = TRUE)))
+    session$setInputs(tab = "relations", relation_type = "cross",
+                     cross_x = "sexo", cross_y = "enferedad_cronica", cross_chart = "percent")
+    plotted <- plot_model()$plot$data
+    stopifnot(sum(plotted$n) == 2L,
+              all(label_number(plotted$Etiqueta, "\\bn") == 1L),
+              all(label_percentage(plotted$Etiqueta) == 50),
+              attr(table_model()$data, "n_missing") == 2L)
+    csv <- read_download_csv(output$download_base)
+    stopifnot(nrow(csv) == 4L, sum(is.na(csv$edad_anos)) == 1L,
+              identical(csv$edad_anos[1:3], c(2L, 4L, 8L)))
+  })
+})
+
 # Edge cases not present in the complete simulated dataset. These protect the
 # declared handling of absent values, sample SD, and undefined correlation.
 summary <- app_env$describe_numeric(c(2, 4, NA_real_))
@@ -216,4 +412,24 @@ constant_pairs <- data.frame(x = c(1, 1, 1, NA), y = c(2, 3, 4, 5))
 correlation <- app_env$pearson_summary(constant_pairs, list(key = "x"), list(key = "y"))
 stopifnot(correlation$`Pares completos` == 3, correlation$`Filas excluidas` == 1,
           is.na(correlation$`r de Pearson`))
-cat("PASS: 20 cases, 7729 rows, filters, independent summaries, ordinal scales, all chart families, CSV cohorts, SVG/PDF downloads, missing-value boundaries.\n")
+
+# Manual denominators distinguish all rows from complete categorical pairs.
+# The missing category represents 1/4 of the cohort, and the crossing has only
+# the first two complete pairs. These values are stated independently of app
+# transformations so labels cannot inherit a silently changed denominator.
+manual <- data.frame(group = c("A", "A", "B", NA_character_),
+                     answer = c("Sí", "No", NA_character_, "Sí"),
+                     measure = c(2, 4, 8, NA_real_))
+group_column <- list(key = "group", type = "categorical", ordered = FALSE)
+answer_column <- list(key = "answer", type = "categorical", ordered = FALSE)
+manual_frequency <- app_env$frequency_table(manual, group_column)
+stopifnot(identical(manual_frequency$Categoría, c("A", "B", "Sin dato")),
+          identical(manual_frequency$n, c(2L, 1L, 1L)),
+          identical(manual_frequency$`Porcentaje del total`, c(50, 25, 25)))
+manual_cross <- app_env$cross_table(manual, group_column, answer_column)
+stopifnot(attr(manual_cross, "n_complete") == 2L,
+          attr(manual_cross, "n_missing") == 2L,
+          identical(as.integer(manual_cross$n), c(1L, 1L)),
+          identical(manual_cross$`Porcentaje de la fila`, c(50, 50)),
+          identical(manual_cross$`Porcentaje del total válido`, c(50, 50)))
+cat("PASS: 20 cases, 7729 rows, independent summaries, filters, five palettes/picker, 20 chart modes, internal n/percent/mean/median/r labels and segment positions, CSV cohorts, SVG/PDF downloads, singleton/constant/missing-value boundaries.\n")
